@@ -1,0 +1,21 @@
+# env / secrets
+.env
+*.env.local
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# node
+node_modules/
+dist/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+
+# docker volumes if local
+pgdata/

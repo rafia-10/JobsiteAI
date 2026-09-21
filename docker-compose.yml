@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-precode}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-precode_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-precode}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-precode} -d ${POSTGRES_DB:-precode}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-precode}:${POSTGRES_PASSWORD:-precode_dev}@db:5432/${POSTGRES_DB:-precode}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      STT_MODEL: ${STT_MODEL:-whisper-1}
+      TTS_MODEL: ${TTS_MODEL:-tts-1}
+      TTS_VOICE: ${TTS_VOICE:-alloy}
+    ports:
+      - "8081:8000"  # host 8081 (8000 was taken on this machine); container stays 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+
+volumes:
+  pgdata:
