@@ -120,6 +120,7 @@ class AgentResponse(BaseModel):
     model: str | None = None
     tools_used: list[str]
     citations: list[AgentCitation]
+    suggestions: list[str] = []  # contextual follow-up questions for the UI
 
 
 class ToolCall(BaseModel):

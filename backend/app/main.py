@@ -7,13 +7,15 @@ Get running:
 Hello world:   curl http://localhost:8081/api/health
 Full API docs: http://localhost:8081/docs
 """
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -152,6 +154,7 @@ def priority(db: Session = Depends(get_db)):
 
 class AskBody(BaseModel):
     question: str
+    history: list[dict] = Field(default_factory=list)  # [{role, content}, ...]
 
 
 @app.post("/api/agent/ask", response_model=AgentResponse)
@@ -159,14 +162,44 @@ def agent_ask(payload: AskBody, db: Session = Depends(get_db)):
     question = payload.question.strip()
     if not question:
         raise HTTPException(422, "question must not be empty")
-    result = agent.run_agent(db, question)
+    result = agent.run_agent(db, question, history=payload.history)
     return AgentResponse(
         answer=result["answer"],
         source=result["source"],
         model=result.get("model"),
         tools_used=[tc["name"] for tc in result.get("tool_calls", [])],
         citations=_citations(result.get("data_snapshot", {})),
+        suggestions=_followups(result.get("data_snapshot", {})),
     )
+
+
+def _sse(event: dict) -> str:
+    return f"event: {event['type']}\ndata: {json.dumps(event, default=str)}\n\n"
+
+
+@app.post("/api/agent/stream")
+def agent_stream(payload: AskBody, db: Session = Depends(get_db)):
+    """Streaming ask (Server-Sent Events): tool activity, answer tokens, sentences.
+
+    Each `done` event carries the same payload as /api/agent/ask so the client
+    can treat both identically. Media type text/event-stream keeps proxies from
+    buffering the stream.
+    """
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(422, "question must not be empty")
+
+    def generate():
+        for event in agent.stream_agent_events(db, question, history=payload.history):
+            if event["type"] == "done":
+                event = {
+                    **event,
+                    "citations": _citations(event.get("data_snapshot", {})),
+                    "suggestions": _followups(event.get("data_snapshot", {})),
+                }
+            yield _sse(event)
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 @app.post("/api/agent/debug", response_model=AgentDebug)
@@ -175,7 +208,7 @@ def agent_debug(payload: AskBody, db: Session = Depends(get_db)):
     question = payload.question.strip()
     if not question:
         raise HTTPException(422, "question must not be empty")
-    result = agent.run_agent(db, question)
+    result = agent.run_agent(db, question, history=payload.history)
     return AgentDebug(
         tool_calls=[
             {
@@ -187,6 +220,31 @@ def agent_debug(payload: AskBody, db: Session = Depends(get_db)):
         ],
         data_snapshot=result.get("data_snapshot", {}),
     )
+
+
+def _followups(snapshot: dict) -> list[str]:
+    """Contextual follow-up suggestions derived from what the tools just returned,
+    so the UI always offers a real next question instead of a static list."""
+    out: list[str] = []
+    prio = snapshot.get("priority") or {}
+    if prio.get("overdue"):
+        worst = prio["overdue"][0]
+        out.append(f"Why is {worst['title']} overdue?")
+        if len(prio["overdue"]) > 1:
+            out.append("Any overdue work on site?")
+    if prio.get("open_defects"):
+        out.append("What defects are still open?")
+    crews = (snapshot.get("crews") or {}).get("crews", [])
+    if crews:
+        out.append(f"What's the {crews[0]['trade']} crew working on?")
+    else:
+        out.append("Who's on site this week?")
+    if (snapshot.get("status") or {}).get("days_to_target") is not None:
+        out.append("How is the project tracking overall?")
+    if not out:
+        out = ["What's my priority today and tomorrow?", "Who's on site this week?"]
+    seen: set[str] = set()
+    return [s for s in out if not (s in seen or seen.add(s))][:3]
 
 
 def _citations(snapshot: dict) -> list[dict]:

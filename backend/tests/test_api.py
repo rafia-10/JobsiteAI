@@ -65,3 +65,32 @@ def test_citations_from_generic_task_list():
     snap = {"tasks": {"tasks": [{"task_id": 9, "title": "T9"}]}}
     out = _citations(snap)
     assert {"type": "task", "id": 9, "title": "T9"} in out
+
+
+def test_agent_stream_sse_events(client):
+    with client.stream("POST", "/api/agent/stream", json={"question": "what defects are still open"}) as r:
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/event-stream")
+        body = "".join(r.iter_text())
+
+    assert "event: sentence" in body or "event: delta" in body
+    assert "event: done" in body
+    assert "get_defects" in body  # tool activity event present
+
+
+def test_agent_stream_accepts_history(client):
+    with client.stream("POST", "/api/agent/stream", json={
+        "question": "and which tasks are they on?",
+        "history": [{"role": "user", "content": "what defects are still open"},
+                     {"role": "assistant", "content": "Two active defects."}],
+    }) as r:
+        assert r.status_code == 200
+        body = "".join(r.iter_text())
+    assert "event: done" in body
+
+
+def test_agent_ask_suggestions(client):
+    r = client.post("/api/agent/ask", json={"question": "what's my priority today and tomorrow"})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions and all(isinstance(s, str) for s in suggestions)

@@ -11,6 +11,8 @@ directly from the same query layer, so the demo works offline.
 """
 import json
 import logging
+import re
+from collections.abc import Iterator
 from datetime import date
 
 from openai import OpenAI
@@ -20,6 +22,15 @@ from . import queries
 from .config import settings
 
 logger = logging.getLogger("precode.agent")
+
+MAX_HISTORY_MESSAGES = 12  # keep memory bounded; recent turns matter most
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    """Keep the most recent turns, always keeping an assistant before each user
+    turn so tool-result messages are never dangling."""
+    h = [m for m in history if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip()]
+    return h[-MAX_HISTORY_MESSAGES:]
 
 TOOLS = [
     {
@@ -91,6 +102,22 @@ SYSTEM_PROMPT = (
 )
 
 
+def _client() -> OpenAI:
+    return OpenAI(api_key=settings.openai_api_key, base_url=settings.llm_base_url)
+
+
+def _llm_kwargs(extra: dict | None = None) -> dict:
+    """Per-request options tuned for the configured provider.
+
+    Groq's gpt-oss models are reasoning models: without `reasoning_effort: low`
+    they can spend seconds thinking before the first spoken word — wrong trade
+    for a voice assistant. The kwarg is ignored (removed) for other providers.
+    """
+    if "groq.com" in (settings.llm_base_url or ""):
+        return {**extra, "reasoning_effort": "low"} if extra else {"reasoning_effort": "low"}
+    return dict(extra) if extra else {}
+
+
 def _execute_tool(db: Session, today: date, name: str, args: dict) -> dict:
     if name == "get_priority_tasks":
         return queries.get_priority_tasks(db, today)
@@ -111,8 +138,23 @@ def _preview(payload: dict, limit: int = 600) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-def run_agent(db: Session, question: str, today: date | None = None) -> dict:
-    """Answer a supervisor question. Returns {answer, source, model, tool_calls, data_snapshot}."""
+def _base_messages(history: list[dict] | None, question: str, today: date) -> list[dict]:
+    msgs: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT + f" Today's date is {today.isoformat()}."}
+    ]
+    msgs.extend(_trim_history(history or []))
+    msgs.append({"role": "user", "content": question})
+    return msgs
+
+
+def run_agent(db: Session, question: str, today: date | None = None,
+              history: list[dict] | None = None) -> dict:
+    """Answer a supervisor question.
+
+    `history` is prior conversation turns ([{role, content}, ...]) so the
+    assistant resolves follow-ups like "and who is on that crew?".
+    Returns {answer, source, model, tool_calls, data_snapshot}.
+    """
     today = today or date.today()
 
     if not settings.openai_api_key:
@@ -120,11 +162,8 @@ def run_agent(db: Session, question: str, today: date | None = None) -> dict:
 
     tool_calls_made: list[dict] = []
     try:
-        client = OpenAI(api_key=settings.openai_api_key, base_url=settings.llm_base_url)
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT + f" Today's date is {today.isoformat()}."},
-            {"role": "user", "content": question},
-        ]
+        client = _client()
+        messages = _base_messages(history, question, today)
 
         for _ in range(4):  # bounded tool-call loop
             resp = client.chat.completions.create(
@@ -132,6 +171,7 @@ def run_agent(db: Session, question: str, today: date | None = None) -> dict:
                 messages=messages,
                 tools=TOOLS,
                 temperature=0.2,
+                **_llm_kwargs(),
             )
             msg = resp.choices[0].message
             if not msg.tool_calls:
@@ -171,10 +211,148 @@ def run_agent(db: Session, question: str, today: date | None = None) -> dict:
         return fb
 
 
+# --------------------------------------------------------------- streaming ----
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def split_sentences(buffer: str) -> tuple[list[str], str]:
+    """Pop complete sentences (ending .!? + whitespace) off a growing buffer."""
+    parts = _SENTENCE_END.split(buffer)
+    if len(parts) <= 1:
+        return [], buffer
+    complete = parts[:-1]
+    consumed = len(buffer) - len(parts[-1])
+    return complete, buffer[consumed:]
+
+
+def stream_agent_events(db: Session, question: str, today: date | None = None,
+                        history: list[dict] | None = None) -> Iterator[dict]:
+    """Yield agent progress as typed events for Server-Sent Events.
+
+    Event shapes:
+      {"type": "tool", "name": str}          — model is calling a tool
+      {"type": "tool_result", "name": str}   — tool finished (name is out; no data leaks)
+      {"type": "delta", "text": str}         — next chunk of spoken answer text
+      {"type": "sentence", "text": str}      — a complete spoken sentence (drives TTS)
+      {"type": "done", ...run_agent fields}  — final answer + tool_calls + citations data
+    On any LLM failure this degrades to the deterministic fallback, still streamed.
+    """
+    today = today or date.today()
+
+    if not settings.openai_api_key:
+        fb = run_fallback(db, question, today)
+        tail, _rest = split_sentences(fb["answer"] + " ")
+        for s in tail:
+            yield {"type": "sentence", "text": s}
+        yield {"type": "done", **fb}
+        return
+
+    tool_calls_made: list[dict] = []
+    buffer = ""   # unconsumed tail, split into sentences as it grows
+    full = ""     # every content token across all rounds -> the final answer
+    try:
+        client = _client()
+        messages = _base_messages(history, question, today)
+
+        for _ in range(4):
+            stream = client.chat.completions.create(
+                model=settings.llm_model,
+                messages=messages,
+                tools=TOOLS,
+                temperature=0.2,
+                stream=True,
+                **_llm_kwargs(),
+            )
+            tool_calls: dict[int, dict] = {}
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta is None:
+                    continue
+                if getattr(delta, "tool_calls", None):
+                    for tcd in delta.tool_calls:
+                        slot = tool_calls.setdefault(tcd.index, {"id": "", "name": "", "arguments": ""})
+                        if tcd.id:
+                            slot["id"] = tcd.id
+                        if tcd.function and tcd.function.name:
+                            slot["name"] = tcd.function.name
+                        if tcd.function and tcd.function.arguments:
+                            slot["arguments"] += tcd.function.arguments
+                if delta.content:
+                    buffer += delta.content
+                    full += delta.content
+                    yield {"type": "delta", "text": delta.content}
+                    sentences, buffer = split_sentences(buffer)
+                    for s in sentences:
+                        yield {"type": "sentence", "text": s}
+
+            if not tool_calls:
+                break  # content answer finished
+
+            messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": s["id"], "type": "function",
+                     "function": {"name": s["name"], "arguments": s["arguments"] or "{}"}}
+                    for s in tool_calls.values()
+                ],
+            })
+            for slot in tool_calls.values():
+                yield {"type": "tool", "name": slot["name"]}
+                args = json.loads(slot["arguments"] or "{}")
+                try:
+                    result = _execute_tool(db, today, slot["name"], args)
+                except Exception as exc:
+                    logger.exception("tool %s failed", slot["name"])
+                    result = {"error": str(exc)}
+                tool_calls_made.append({"name": slot["name"], "arguments": args, "result": result})
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": slot["id"] or f"call_{len(tool_calls_made)}",
+                    "content": json.dumps(result, default=str),
+                })
+                yield {"type": "tool_result", "name": slot["name"]}
+
+        answer = full.strip() or "I couldn't produce an answer."
+        # Flush whatever streaming hasn't already emitted: split_sentences
+        # removes emitted text from the buffer, so the remaining tail (e.g. a
+        # single-sentence answer that never hit ". ", or a closing fragment)
+        # is exactly what still needs a sentence event. Never re-emit `answer`.
+        leftover = buffer.strip()
+        if leftover:
+            yield {"type": "sentence", "text": leftover}
+        yield {
+            "type": "done",
+            "answer": answer,
+            "source": "llm+tools",
+            "model": settings.llm_model,
+            "tool_calls": tool_calls_made,
+            "data_snapshot": {_snapshot_key(tc["name"]): tc["result"] for tc in tool_calls_made},
+        }
+    except Exception as exc:
+        logger.exception("LLM streaming failed; falling back to deterministic answers")
+        fb = run_fallback(db, question, today)
+        fb["source"] = "fallback (llm error)"
+        fb["error"] = str(exc)
+        tail, _rest = split_sentences(fb["answer"] + " ")
+        for s in tail:
+            yield {"type": "sentence", "text": s}
+        yield {"type": "done", **fb}
+
+
 # ---------------------------------------------------------------- fallback ----
 
-def run_fallback(db: Session, question: str, today: date) -> dict:
-    """Deterministic answers with no LLM. Detects intent with simple keyword rules."""
+def run_fallback(db: Session, question: str, today: date, history: list[dict] | None = None) -> dict:
+    """Deterministic answers with no LLM. Detects intent with simple keyword rules.
+
+    A follow-up question (e.g. "and tomorrow?" with no topic keyword) is resolved
+    against the previous user turn so short voice follow-ups still work offline.
+    """
+    for m in reversed(history or []):
+        if m.get("role") == "user" and (m.get("content") or "").strip():
+            question = f"{m['content']} {question}"
+            break
     q = question.lower()
     snapshot: dict = {}
 

@@ -61,11 +61,21 @@ from a tool. It plans and phrases; the database answers. Five deterministic tool
 tool call is recorded — `POST /api/agent/debug` shows exactly which queries produced an
 answer. This grounding is enforced by the test suite (see *Tests & CI*).
 
+**Interactive, not canned:** answers are LLM-generated (Groq `openai/gpt-oss-120b` by
+default; any OpenAI-compatible endpoint works) and streamed token-by-token over SSE
+(`POST /api/agent/stream`). The agent keeps **conversation memory** — follow-ups like
+*"and which task is the critical one on?"* resolve against earlier turns. The UI shows
+live tool activity ("checking today's schedule…"), a typing caret, and contextual
+follow-up suggestions derived from what the tools just returned. If no API key is set,
+a deterministic fallback keeps the demo alive; it too resolves simple follow-ups from
+history.
+
 **Voice:**
 - *Input:* browser Web Speech API (Chrome/Edge, zero keys) with automatic fallback to
-  `MediaRecorder → POST /api/voice/transcribe` (OpenAI-compatible Whisper server-side).
-- *Output:* browser speech synthesis by default; server TTS at
-  `POST /api/voice/speak` when a key is configured.
+  `MediaRecorder → POST /api/voice/transcribe` (Groq Whisper server-side).
+- *Output:* server TTS at `POST /api/voice/speak` (Groq Orpheus) when available, with
+  automatic per-session fallback to browser speech synthesis. Sentences are spoken as
+  they stream in, not after the full answer.
 
 **No API key? Still works.** A deterministic fallback answers the core questions
 (priority today/tomorrow, defects, crews, project status) from the same query layer, so
@@ -105,7 +115,8 @@ overdue / today / tomorrow / this week / next week / completed, and 5 defects
 | `GET /api/tasks?status=&trade=&on_date=` | filtered task list |
 | `GET /api/defects?status=` | defect list |
 | `GET /api/projects` / `GET /api/trades` / `GET /api/trade-assignments` | reference data |
-| `POST /api/agent/ask` | `{question}` → grounded answer + citations |
+| `POST /api/agent/ask` | `{question, history}` → grounded answer + citations + suggested follow-ups |
+| `POST /api/agent/stream` | same, as SSE: `tool` / `tool_result` / `delta` / `sentence` / `done` events |
 | `POST /api/agent/debug` | same + raw tool calls and data snapshot |
 | `POST /api/voice/transcribe` | multipart audio → transcript (needs API key) |
 | `POST /api/voice/speak` | text → MP3 stream (needs API key) |
@@ -113,7 +124,7 @@ overdue / today / tomorrow / this week / next week / completed, and 5 defects
 
 ## Tests & CI
 
-The agent's grounding is enforced by a test suite (`backend/tests/`, 23 tests):
+The agent's grounding is enforced by a test suite (`backend/tests/`, 33 tests):
 
 - **`test_queries.py`** — every query-layer tool returns data consistent with the seed (priority buckets, filters, defect counts, crew workload).
 - **`test_agent.py`** — deterministic fallback answers must cite real seed entities; the LLM tool-calling loop is tested with a **mocked OpenAI client**, asserting that tool results are recorded as structured data and that LLM failures degrade to the fallback instead of erroring.

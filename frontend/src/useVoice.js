@@ -16,12 +16,20 @@ export function useVoice() {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [sttMode, setSttMode] = useState("none"); // none | browser | server
+  const [serverTts, setServerTts] = useState(true); // prefer real TTS voice; browser fallback automatic
   const [error, setError] = useState(null);
 
   const recognitionRef = useRef(null);
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
+  const speechQueueRef = useRef(Promise.resolve()); // sentences play strictly in order
+  const serverTtsRef = useRef(serverTts);
+  const serverTtsBrokenRef = useRef(false); // set after a server TTS failure; skip retries
+
+  useEffect(() => {
+    serverTtsRef.current = serverTts;
+  }, [serverTts]);
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -114,38 +122,59 @@ export function useVoice() {
     setListening(false);
   }, [listening]);
 
-  const speak = useCallback(async (text, useServer = false) => {
-    window.speechSynthesis?.cancel();
-    if (useServer) {
-      try {
-        const resp = await fetch("/api/voice/speak", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const audio = new Audio(URL.createObjectURL(blob));
-          setSpeaking(true);
-          audio.onended = () => setSpeaking(false);
-          await audio.play();
-          return;
+  const speak = useCallback((text) => {
+    const clean = (text || "").trim();
+    if (!clean) return;
+    // Queue sentences so streamed answers play in order instead of overlapping.
+    speechQueueRef.current = speechQueueRef.current.then(async () => {
+      if (serverTtsRef.current && !serverTtsBrokenRef.current) {
+        try {
+          const resp = await fetch("/api/voice/speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: clean }),
+          });
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const audio = new Audio(URL.createObjectURL(blob));
+            setSpeaking(true);
+            await new Promise((resolve) => {
+              audio.onended = resolve;
+              audio.onerror = resolve;
+              audio.play().catch(resolve);
+            });
+            setSpeaking(false);
+            return;
+          }
+          // Server TTS misconfigured (503) or provider failing (502):
+          // stop retrying this session; browser TTS takes over.
+          serverTtsBrokenRef.current = true;
+        } catch {
+          serverTtsBrokenRef.current = true; // fall through to browser TTS
         }
-      } catch { /* fall through to browser TTS */ }
-    }
-    if (window.speechSynthesis) {
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 1.05;
-      utter.onend = () => setSpeaking(false);
-      setSpeaking(true);
-      window.speechSynthesis.speak(utter);
-    }
+      }
+      if (window.speechSynthesis) {
+        const utter = new SpeechSynthesisUtterance(clean);
+        utter.rate = 1.05;
+        setSpeaking(true);
+        await new Promise((resolve) => {
+          utter.onend = resolve;
+          utter.onerror = resolve;
+          window.speechSynthesis.speak(utter);
+        });
+        setSpeaking(false);
+      }
+    });
+    return speechQueueRef.current;
   }, []);
 
   const stopSpeaking = useCallback(() => {
+    // Drain the queue and silence anything currently playing.
+    speechQueueRef.current = Promise.resolve();
     window.speechSynthesis?.cancel();
+    document.querySelectorAll("audio").forEach((a) => a.pause());
     setSpeaking(false);
   }, []);
 
-  return { listening, speaking, sttMode, error, startListening, stopListening, speak, stopSpeaking, setError };
+  return { listening, speaking, sttMode, serverTts, setServerTts, error, startListening, stopListening, speak, stopSpeaking, setError };
 }

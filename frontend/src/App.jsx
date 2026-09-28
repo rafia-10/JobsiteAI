@@ -2,23 +2,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import { useVoice } from "./useVoice.js";
 
-const SUGGESTIONS = [
+const STARTERS = [
   "What's my priority today and tomorrow?",
-  "Any overdue work on site?",
   "What defects are still open?",
   "Who's on site this week?",
+  "How is the project tracking overall?",
 ];
 
 export default function App() {
   const [question, setQuestion] = useState("");
-  const [conversation, setConversation] = useState([]); // {role: 'user'|'assistant', text, meta}
+  const [conversation, setConversation] = useState([]); // {role, text, meta?, streaming?}
   const [busy, setBusy] = useState(false);
+  const [activity, setActivity] = useState(null);       // "checking today's tasks…"
+  const [suggestions, setSuggestions] = useState(STARTERS);
   const [voiceOn, setVoiceOn] = useState(true);
   const [health, setHealth] = useState(null);
   const [priority, setPriority] = useState(null);
   const transcriptRef = useRef(null);
+  const voiceRef = useRef(null);
 
   const voice = useVoice();
+  voiceRef.current = voice;
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth({ status: "backend unreachable" }));
@@ -27,26 +31,64 @@ export default function App() {
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
-  }, [conversation]);
+  }, [conversation, activity]);
 
   const ask = useCallback(
     async (text) => {
-      const q = (text || question).trim();
+      const q = (text ?? question).trim();
       if (!q || busy) return;
       setQuestion("");
       setBusy(true);
+      setSuggestions([]);
       setConversation((c) => [...c, { role: "user", text: q }]);
+
+      // History = everything before this turn, already resolved (streamed msgs excluded).
+      const history = conversation
+        .filter((m) => !m.streaming && m.text && !m.text.startsWith("Error:"))
+        .map((m) => ({ role: m.role, content: m.text }));
+
+      setConversation((c) => [...c, { role: "assistant", text: "", streaming: true, meta: null }]);
+      let patchId = null;
+      const patch = (fn) =>
+        setConversation((c) => {
+          const next = [...c];
+          const last = next.length - 1;
+          next[last] = fn({ ...next[last] });
+          return next;
+        });
+
       try {
-        const res = await api.ask(q);
-        setConversation((c) => [...c, { role: "assistant", text: res.answer, meta: res }]);
-        if (voiceOn) voice.speak(res.answer);
+        const done = await api.askStream(
+          q,
+          history,
+          (evt) => {
+            if (evt.type === "tool") {
+              setActivity(toolLabel(evt.name));
+            } else if (evt.type === "tool_result") {
+              setActivity(null);
+            } else if (evt.type === "delta") {
+              patch((m) => ({ ...m, text: m.text + evt.text }));
+            } else if (evt.type === "sentence") {
+              if (voiceOn) voiceRef.current?.speak(evt.text);
+            }
+          },
+        );
+        patch((m) => ({
+          ...m,
+          text: done.answer || m.text || "I couldn't produce an answer.",
+          streaming: false,
+          meta: done,
+        }));
+        setSuggestions(done.suggestions?.length ? done.suggestions : STARTERS);
       } catch (err) {
-        setConversation((c) => [...c, { role: "assistant", text: `Error: ${err.message}`, meta: null }]);
+        patch((m) => ({ ...m, text: `Error: ${err.message}`, streaming: false }));
+        setSuggestions(STARTERS);
       } finally {
         setBusy(false);
+        setActivity(null);
       }
     },
-    [question, busy, voiceOn, voice]
+    [question, busy, conversation, voiceOn],
   );
 
   const handleMic = useCallback(() => {
@@ -84,9 +126,9 @@ export default function App() {
           <div className="transcript" ref={transcriptRef}>
             {conversation.length === 0 && (
               <div className="empty">
-                <p>Hold the mic and ask, or type below. Everything is answered from the live project database.</p>
+                <p>Hold the mic and ask, or type below. Answers come from the live project database via a real LLM.</p>
                 <div className="chips">
-                  {SUGGESTIONS.map((s) => (
+                  {suggestions.map((s) => (
                     <button key={s} className="chip" onClick={() => ask(s)}>{s}</button>
                   ))}
                 </div>
@@ -94,9 +136,10 @@ export default function App() {
             )}
             {conversation.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
-                <div className="bubble">
+                <div className={`bubble ${m.streaming ? "streaming" : ""}`}>
                   {m.text}
-                  {m.meta && (
+                  {m.streaming && <span className="caret" aria-hidden="true" />}
+                  {m.meta && !m.streaming && (
                     <div className="meta">
                       {m.meta.source === "llm+tools" ? `model: ${m.meta.model}` : "deterministic fallback"}
                       {m.meta.citations?.length > 0 && " · cited: " + m.meta.citations.map((c) => c.title).join(", ")}
@@ -105,7 +148,7 @@ export default function App() {
                 </div>
               </div>
             ))}
-            {busy && <div className="msg assistant"><div className="bubble thinking">checking the schedule…</div></div>}
+            {busy && activity && <div className="activity">⚙ {activity}</div>}
           </div>
 
           {voice.error && <div className="voice-error">{voice.error}</div>}
@@ -121,12 +164,21 @@ export default function App() {
             </button>
             <input
               value={question}
-              placeholder="or type a question…"
+              placeholder={busy ? "assistant is answering…" : "or type a question…"}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && ask()}
+              disabled={busy}
             />
             <button className="send" onClick={() => ask()} disabled={busy || !question.trim()}>ask</button>
           </div>
+
+          {conversation.length > 0 && (
+            <div className="chips followups">
+              {suggestions.map((s) => (
+                <button key={s} className="chip" onClick={() => ask(s)} disabled={busy}>{s}</button>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* ------------------------------- live data ------------------- */}
@@ -163,4 +215,15 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+function toolLabel(name) {
+  const labels = {
+    get_priority_tasks: "checking today's schedule…",
+    get_project_status: "checking project status…",
+    get_defects: "checking defects…",
+    get_trades_workload: "checking crews on site…",
+    get_tasks: "searching tasks…",
+  };
+  return labels[name] || `running ${name}…`;
 }
