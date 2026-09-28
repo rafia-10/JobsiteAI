@@ -10,7 +10,7 @@ def test_priority_buckets(db_session):
     assert data["overdue"], "seed must contain overdue tasks"
     assert data["today"], "seed must contain tasks due today"
     assert data["tomorrow"], "seed must contain tasks due tomorrow"
-    assert data["open_defects"] == 3  # 2 open + 1 in_progress
+    assert data["open_defects"] == 6  # 4 open + 2 in_progress on the flagship build
 
     for bucket in ("overdue", "today", "tomorrow"):
         for t in data[bucket]:
@@ -63,5 +63,5 @@ def test_trades_workload_includes_crew_leads(db_session):
 def test_project_status_counts(db_session):
     status = queries.get_project_status(db_session, date.today())
     assert status["project_name"] == "14 Kowhai Crescent — New Build"
-    assert status["total_tasks"] == 16
-    assert status["task_counts"].get("completed", 0) == 3
+    assert status["total_tasks"] == 21
+    assert status["task_counts"].get("completed", 0) == 4

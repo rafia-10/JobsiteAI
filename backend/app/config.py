@@ -1,6 +1,7 @@
 """Central configuration, loaded from environment / .env."""
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +10,19 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "postgresql+psycopg://precode:precode_dev@localhost:5433/precode"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, v: str) -> str:
+        """Accept postgres:// / postgresql:// (e.g. fly postgres attach) and
+        route everything through the psycopg3 dialect."""
+        if not isinstance(v, str) or v.startswith("postgresql+psycopg://"):
+            return v
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://"):]
+        if v.startswith("postgresql://"):
+            v = "postgresql+psycopg://" + v[len("postgresql://"):]
+        return v
 
     # LLM (any OpenAI-compatible API; empty key => deterministic fallback agent)
     openai_api_key: str = ""
