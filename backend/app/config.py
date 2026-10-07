@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_database_url(cls, v: str) -> str:
-        """Accept postgres:// / postgresql:// (e.g. fly postgres attach) and
-        route everything through the psycopg3 dialect."""
+        """Accept postgres:// / postgresql:// URLs (e.g. Render Postgres' built-in
+        connection string) and route everything through the psycopg3 dialect."""
         if not isinstance(v, str) or v.startswith("postgresql+psycopg://"):
             return v
         if v.startswith("postgres://"):

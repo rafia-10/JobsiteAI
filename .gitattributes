@@ -1,0 +1,4 @@
+# These end up verbatim inside Docker images — CRLF breaks the entrypoint
+# shebang and confuses nginx's config parser, so never convert them.
+*.sh text eol=lf
+*.template text eol=lf

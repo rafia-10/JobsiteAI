@@ -1,0 +1,67 @@
+# Render Blueprint for PreCode — deploy with:
+#   Render Dashboard → New → Blueprint → pick this repo (render.yaml at repo root)
+#
+#   precode-api  FastAPI + agent (backend/, Docker)      health: /api/health
+#   precode-web  React UI + /api reverse proxy (frontend/, Docker)
+#   precode-db   Render Postgres, wired into precode-api via DATABASE_URL
+#
+# Both containers bind to $PORT (Render sets PORT=10000 by default).
+# The API creates its schema and seeds demo data automatically on first start.
+
+services:
+  - type: web
+    name: precode-api
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      # Private-network connection string of precode-db (postgresql://…);
+      # the app's config normalizes it to the psycopg3 dialect.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: precode-db
+          property: connectionString
+      # Optional: any OpenAI-compatible key (Groq/OpenAI/OpenRouter).
+      # Without it the agent answers with the deterministic fallback —
+      # set the value in the dashboard after the first sync.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: STT_MODEL
+        value: whisper-large-v3-turbo
+      - key: TTS_MODEL
+        value: canopylabs/orpheus-v1-english
+      - key: TTS_VOICE
+        value: tara
+
+  - type: web
+    name: precode-web
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    healthCheckPath: /
+    envVars:
+      # precode-api's full public URL (https://…onrender.com). The nginx proxy
+      # in the frontend container forwards /api/* to it, so the app stays
+      # same-origin: SSE streaming and voice uploads need no CORS.
+      - key: BACKEND_URL
+        fromService:
+          name: precode-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+databases:
+  - name: precode-db
+    region: singapore
+    plan: free
+    databaseName: precode
+    user: precode
+    postgresMajorVersion: "17"

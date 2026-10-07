@@ -67,7 +67,10 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
         steve = Supervisor(name="Steve Okafor", email="steve.okafor@precode.example", phone="+64 27 712 3345")
         priya_s = Supervisor(name="Priya Sharma", email="priya.sharma@precode.example", phone="+64 21 038 7765")
         lena_s = Supervisor(name="Lena Sorensen", email="lena.sorensen@precode.example", phone="+64 27 550 2918")
-        db.add_all([dave, aroha, steve, priya_s, lena_s])
+        tui = Supervisor(name="Tui Waititi", email="tui.waititi@precode.example", phone="+64 21 555 9071")
+        james = Supervisor(name="James Fletcher", email="james.fletcher@precode.example", phone="+64 27 884 2210")
+        hana = Supervisor(name="Hana Kim", email="hana.kim@precode.example", phone="+64 22 630 4457")
+        db.add_all([dave, aroha, steve, priya_s, lena_s, tui, james, hana])
         db.flush()
 
         # --- Trades (company-wide catalogue) -----------------------------------
@@ -82,6 +85,9 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
             ("Landscaper", "Hardscaping, retaining walls, planting", 55.0),
             ("Concrete Crew", "Slabs, foundations, driveways, footings", 71.0),
             ("Glazier", "Glass balustrades, shower glass, mirrors", 79.0),
+            ("Scaffolder", "Erect, tag and strike scaffold systems", 72.0),
+            ("Cabinetmaker", "Kitchen and vanity joinery, hardware fit-off", 84.0),
+            ("HVAC Technician", "Heat pumps, HRV/ERV ventilation installs", 93.0),
         ]
         trades = {
             name: Trade(name=name, description=desc, typical_daily_rate=rate)
@@ -142,10 +148,40 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
             target_completion_date=d(+40),
             created_at=dt(99),
         )
-        db.add_all([project1, project2, project3, project4, project5])
+        # 6) ACTIVE — architectural build, mid-programme (different crew mix).
+        project6 = Project(
+            supervisor_id=tui.id,
+            name="7 Kauri Lane — Architectural Build",
+            address="7 Kauri Lane, Titirangi, Auckland",
+            status=ProjectStatus.ACTIVE,
+            start_date=d(-52),
+            target_completion_date=d(+95),
+            created_at=dt(55),
+        )
+        # 7) COMPLETED — commercial-style fit-out, full historic trail.
+        project7 = Project(
+            supervisor_id=james.id,
+            name="19a Rata Street — Unit Fit-out",
+            address="19a Rata Street, Grey Lynn, Auckland",
+            status=ProjectStatus.COMPLETED,
+            start_date=d(-300),
+            target_completion_date=d(-60),
+            created_at=dt(306),
+        )
+        # 8) ACTIVE — early stage, just off the slab.
+        project8 = Project(
+            supervisor_id=hana.id,
+            name="12 Wharf Road — Townhouse Pair",
+            address="12 Wharf Road, Herne Bay, Auckland",
+            status=ProjectStatus.ACTIVE,
+            start_date=d(-18),
+            target_completion_date=d(+150),
+            created_at=dt(21),
+        )
+        db.add_all([project1, project2, project3, project4, project5, project6, project7, project8])
         db.flush()
 
-        # --- Trade assignments (crews on site this fortnight) -----------------
+        # --- Trade assignments (crews: on site now, finished, and booked ahead) -
         assignments = [
             TradeAssignment(project_id=project1.id, trade_id=trades["Site Carpenter"].id, crew_lead="Sione T.", crew_size=3, start_date=d(-14), end_date=d(+7), notes="Framing through to fix-out"),
             TradeAssignment(project_id=project1.id, trade_id=trades["Electrician"].id, crew_lead="Priya N.", crew_size=2, start_date=d(-3), end_date=d(+6), notes="First fix wiring"),
@@ -164,6 +200,36 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
             TradeAssignment(project_id=project3.id, trade_id=trades["Tiler"].id, crew_lead="Fatima Z.", crew_size=2, start_date=d(-70), end_date=d(-45), notes="Two wet areas per unit"),
             TradeAssignment(project_id=project5.id, trade_id=trades["Site Carpenter"].id, crew_lead="Wiremu P.", crew_size=2, start_date=d(-90), end_date=d(-20), notes="Stood down pending weather-tightness claim"),
             TradeAssignment(project_id=project5.id, trade_id=trades["Painter"].id, crew_lead="Rangi D.", crew_size=2, start_date=d(-88), end_date=d(-18), notes="Stopped at exterior prep coat"),
+            TradeAssignment(project_id=project5.id, trade_id=trades["Plumber"].id, crew_lead="Kahu R.", crew_size=2, start_date=d(-60), end_date=d(-15), notes="Interior rough-in paused mid-run"),
+            TradeAssignment(project_id=project5.id, trade_id=trades["Scaffolder"].id, crew_lead="Sonny K.", crew_size=2, start_date=d(-40), end_date=d(-10), notes="Struck to half scaffold, awaiting assessor"),
+            TradeAssignment(project_id=project1.id, trade_id=trades["Scaffolder"].id, crew_lead="Sonny K.", crew_size=2, start_date=d(-7), end_date=d(+10), notes="Roof zone + perimeter, weekly scaffold inspection"),
+            TradeAssignment(project_id=project2.id, trade_id=trades["Gib Stopper"].id, crew_lead="Bex T.", crew_size=3, start_date=d(+12), end_date=d(+40), notes="Stopping Unit A after close-in"),
+            TradeAssignment(project_id=project2.id, trade_id=trades["HVAC Technician"].id, crew_lead="Dan P.", crew_size=2, start_date=d(+28), end_date=d(+42), notes="Heat pumps and HRV, both units"),
+            TradeAssignment(project_id=project2.id, trade_id=trades["Cabinetmaker"].id, crew_lead="Anika M.", crew_size=2, start_date=d(+35), end_date=d(+50), notes="Kitchens and vanities at fit-out"),
+            TradeAssignment(project_id=project3.id, trade_id=trades["Electrician"].id, crew_lead="Anika M.", crew_size=2, start_date=d(-160), end_date=d(-105), notes="LED upgrade and switchboard rework"),
+            TradeAssignment(project_id=project3.id, trade_id=trades["Roofer"].id, crew_lead="Sam T. (Sr.)", crew_size=3, start_date=d(-195), end_date=d(-155), notes="Reroof both units before repaint"),
+            TradeAssignment(project_id=project3.id, trade_id=trades["Plumber"].id, crew_lead="Marco V.", crew_size=2, start_date=d(-125), end_date=d(-85), notes="Bathroom renovations, all units"),
+            TradeAssignment(project_id=project3.id, trade_id=trades["Glazier"].id, crew_lead="Tom H.", crew_size=2, start_date=d(-105), end_date=d(-78), notes="Shower screens and mirrors"),
+            TradeAssignment(project_id=project4.id, trade_id=trades["Concrete Crew"].id, crew_lead="Big Joe R.", crew_size=5, start_date=d(+20), end_date=d(+34), notes="Footings and slab programme, weather permitting"),
+            TradeAssignment(project_id=project4.id, trade_id=trades["Plumber"].id, crew_lead="Kahu R.", crew_size=2, start_date=d(+16), end_date=d(+30), notes="Under-slab drainage once excavation is certified"),
+            TradeAssignment(project_id=project4.id, trade_id=trades["Site Carpenter"].id, crew_lead="Wiremu P.", crew_size=4, start_date=d(+31), end_date=d(+60), notes="Frame and truss, provisional start"),
+            TradeAssignment(project_id=project4.id, trade_id=trades["Scaffolder"].id, crew_lead="Sonny K.", crew_size=2, start_date=d(+35), end_date=d(+45), notes="Perimeter scaffold at frame start"),
+            TradeAssignment(project_id=project6.id, trade_id=trades["Concrete Crew"].id, crew_lead="Big Joe R.", crew_size=5, start_date=d(-52), end_date=d(-25), notes="Foundations and slab, cured and stripped"),
+            TradeAssignment(project_id=project6.id, trade_id=trades["Site Carpenter"].id, crew_lead="Sione T.", crew_size=4, start_date=d(-45), end_date=d(+20), notes="Frame, truss and roof substrate"),
+            TradeAssignment(project_id=project6.id, trade_id=trades["Electrician"].id, crew_lead="Priya N.", crew_size=2, start_date=d(-20), end_date=d(+15), notes="First fix behind frame"),
+            TradeAssignment(project_id=project6.id, trade_id=trades["Plumber"].id, crew_lead="Marco V.", crew_size=2, start_date=d(-18), end_date=d(+10), notes="First fix and underfloor drainage"),
+            TradeAssignment(project_id=project6.id, trade_id=trades["Roofer"].id, crew_lead="Hemi W.", crew_size=3, start_date=d(+5), end_date=d(+25), notes="Long-run roofing after close-in"),
+            TradeAssignment(project_id=project6.id, trade_id=trades["Gib Stopper"].id, crew_lead="Lena K.", crew_size=3, start_date=d(+18), end_date=d(+35), notes="Stopping and painting prep"),
+            TradeAssignment(project_id=project7.id, trade_id=trades["Site Carpenter"].id, crew_lead="Wiremu P.", crew_size=3, start_date=d(-290), end_date=d(-150), notes="Fit-out framing and bulkheads"),
+            TradeAssignment(project_id=project7.id, trade_id=trades["Electrician"].id, crew_lead="Anika M.", crew_size=2, start_date=d(-200), end_date=d(-120), notes="Power and data fit-out"),
+            TradeAssignment(project_id=project7.id, trade_id=trades["Tiler"].id, crew_lead="Fatima Z.", crew_size=2, start_date=d(-170), end_date=d(-110), notes="Lobby floors and wet areas"),
+            TradeAssignment(project_id=project7.id, trade_id=trades["Painter"].id, crew_lead="Rangi D.", crew_size=2, start_date=d(-150), end_date=d(-90), notes="Final coat, handed over"),
+            TradeAssignment(project_id=project7.id, trade_id=trades["Cabinetmaker"].id, crew_lead="Anika M.", crew_size=2, start_date=d(-120), end_date=d(-75), notes="Kitchens and vanities installed"),
+            TradeAssignment(project_id=project8.id, trade_id=trades["Concrete Crew"].id, crew_lead="Big Joe R.", crew_size=4, start_date=d(-18), end_date=d(-4), notes="Slab poured week 2"),
+            TradeAssignment(project_id=project8.id, trade_id=trades["Scaffolder"].id, crew_lead="Sonny K.", crew_size=2, start_date=d(-5), end_date=d(+30), notes="Full perimeter, roof edge protection"),
+            TradeAssignment(project_id=project8.id, trade_id=trades["Site Carpenter"].id, crew_lead="Sione T.", crew_size=4, start_date=d(-10), end_date=d(+40), notes="Frame programme both units"),
+            TradeAssignment(project_id=project8.id, trade_id=trades["Plumber"].id, crew_lead="Kahu R.", crew_size=2, start_date=d(+2), end_date=d(+35), notes="Under-slab then first fix"),
+            TradeAssignment(project_id=project8.id, trade_id=trades["Electrician"].id, crew_lead="Priya N.", crew_size=2, start_date=d(+5), end_date=d(+45), notes="First fix once frame closes"),
         ]
         db.add_all(assignments)
         db.flush()
@@ -227,7 +293,7 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
              "Walls standing; roof trusses next week.", None),
             (project2, "Site Carpenter", "Wrap and paper — Unit A", "pending", "high", +4, +6,
              "Rigid air barrier before roofing starts.", None),
-            (project2, "Plumber", "Slab penetrations — Unit A", "completed", "high", -24, -23,
+            (project2, "Plumber", "Slab penetrations — plumbing, Unit A", "completed", "high", -24, -23,
              "All penetrations sleeved and pressure tested.", None),
             (project2, "Plumber", "Slab penetrations — Unit B", "completed", "high", -19, -18,
              "Photos in job file for council.", None),
@@ -235,7 +301,7 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
              "Running pipework behind frames as they close.", None),
             (project2, "Plumber", "Gully and stormwater — both units", "pending", "medium", +9, +14,
              "After frames are up; council inspection to follow.", None),
-            (project2, "Electrician", "Slab penetrations — Unit A", "completed", "high", -24, -23,
+            (project2, "Electrician", "Slab penetrations — electrical, Unit A", "completed", "high", -24, -23,
              "Conduit stubs for kitchen island bench.", None),
             (project2, "Electrician", "First fix wiring — Unit A", "in_progress", "high", -6, +12,
              "Wiring behind frame; coordinate with plumber in common walls.", None),
@@ -291,6 +357,144 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
             (project5, "Site Carpenter", "Deck framing repair", "blocked", "high", -30, +8,
              "Joist ends rotted; repair detail from engineer pending.",
              "Insurance claim assessment in progress."),
+            (project5, "Plumber", "Interior rough-in — pause", "blocked", "high", -60, -20,
+             "Stopped mid-run in kitchen wall; caps fitted.",
+             "Paused with the claim — no trades on site."),
+            (project5, "Scaffolder", "Half-scaffold maintain and inspect", "blocked", "medium", -35, -15,
+             "Structure left at half height for the assessor's access.",
+             "Site access restricted pending assessment."),
+            (project5, "Site Carpenter", "Rot repair — bathroom subfloor Unit 4", "blocked", "critical", -25, +10,
+             "Lift boards once assessor signs off scope.",
+             "Insurance scope of works outstanding."),
+            (project5, "Site Carpenter", "Reinstate parapet capping", "pending", "high", +18, +30,
+             "Follows water-ingress remediation design.", None),
+
+            # ---------------- project2: fit-out and services queued behind framing
+            (project2, "Gib Stopper", "Install plasterboard — Unit A ceilings", "pending", "medium", +13, +17,
+             "Booked after roof and first-fix sign-off.", None),
+            (project2, "Gib Stopper", "Stop and tape — Unit A walls", "pending", "medium", +16, +22,
+             "Level 5 finish to living areas per plans.", None),
+            (project2, "HVAC Technician", "Heat pumps — supply and install both units", "pending", "medium", +30, +40,
+             "Client spec: two indoor heads per unit.", None),
+            (project2, "HVAC Technician", "HRV ducting — ceiling spaces", "pending", "low", +33, +42,
+             "Coordinate with gib — before ceilings close.", None),
+            (project2, "Cabinetmaker", "Kitchen joinery — Unit A measure", "pending", "medium", +36, +38,
+             "Site measure after gib levels are set.", None),
+            (project2, "Cabinetmaker", "Vanities and wardrobes — both units", "pending", "low", +44, +52,
+             "Install at fit-out, after tiling.", None),
+            (project2, "Site Carpenter", "Barge boards and fascia — Unit A", "pending", "medium", +8, +11,
+             "Alongside roofing; primed joinery supplied.", None),
+            (project2, "Site Carpenter", "Interior door hanging — Unit A", "pending", "low", +24, +30,
+             "After stopping first coat; 20 doors + 3 sliders.", None),
+            (project2, "Electrician", "Switchboard and RCD — Unit A", "pending", "high", +14, +18,
+             "Board install before plasterboard close-up.", None),
+
+            # ---------------- project3: extra completed history
+            (project3, "Roofer", "Full reroof — Units 1-4", "completed", "high", -195, -158,
+             "Long-run steel over new underlay; warranty issued.", None),
+            (project3, "Electrician", "Switchboard upgrade — all units", "completed", "high", -150, -132,
+             "Main boards replaced; verification signed.", None),
+            (project3, "Electrician", "Power and data fit-out — Units 2-4", "completed", "medium", -145, -112,
+             "Extra outlets and data points per client schedule.", None),
+            (project3, "Plumber", "New laundry plumbing — Unit 4", "completed", "medium", -108, -92,
+             "Relocated wasteflow and taps; pressure tested.", None),
+            (project3, "Glazier", "Mirrors and shower screens — all units", "completed", "medium", -102, -80,
+             "Installed after tiling; silicone cured before use.", None),
+            (project3, "Tiler", "Splashbacks — kitchens, all units", "completed", "low", -90, -74,
+             "Glass splashbacks fitted after stone tops.", None),
+
+            # ---------------- project4: planning — more of the programme queued
+            (project4, "Concrete Crew", "Set out and punch footings", "pending", "high", +24, +27,
+             "Surveyor set-out; engineer on site for pour.", None),
+            (project4, "Concrete Crew", "Slab pour — house pad", "pending", "critical", +40, +41,
+             "32MPa with poly under; pump booked for the morning.", None),
+            (project4, "Plumber", "Under-slab drainage rough-in", "pending", "high", +26, +31,
+             "Before rebar; council inspection mid-window.", None),
+            (project4, "Site Carpenter", "Delivery and store — frame pack", "pending", "medium", +32, +34,
+             "Keep off ground, cover against weather.", None),
+            (project4, "Site Carpenter", "Frame lift — ground floor", "pending", "high", +35, +45,
+             "Two crews, crane for portal beam day 2.", None),
+            (project4, "Scaffolder", "Perimeter scaffold — house pad provision", "pending", "medium", +35, +38,
+             "Erect at frame start; scaffold tag scheme.", None),
+
+            # ---------------- project6: Kauri Lane (active, mid-programme)
+            (project6, "Concrete Crew", "Foundations and pile caps", "completed", "critical", -52, -45,
+             "Engineer sat pours; concrete tests passed.", None),
+            (project6, "Concrete Crew", "Slab pour — main house", "completed", "critical", -40, -38,
+             "32MPa, power-floated, poly over slab.", None),
+            (project6, "Site Carpenter", "Frame and truss — ground floor", "completed", "high", -30, -18,
+             "Portal beam landed with crane; braced and pegged.", None),
+            (project6, "Site Carpenter", "Frame and truss — first floor", "in_progress", "critical", -14, +4,
+             "Walls standing; roof trusses land next week.", None),
+            (project6, "Site Carpenter", "Roof substrate and barge", "pending", "high", +3, +9,
+             "Ply substrate ready for long-run steel.", None),
+            (project6, "Site Carpenter", "Window and door joinery install", "pending", "high", +6, +12,
+             "Frames in; glazing crew follows.", None),
+            (project6, "Plumber", "First fix plumbing — ground floor", "in_progress", "high", -12, +6,
+             "Hot and cold to kitchen and two baths.", None),
+            (project6, "Plumber", "Wasteflow and stormwater connections", "pending", "medium", +8, +14,
+             "Council inspection booked mid-window.", None),
+            (project6, "Electrician", "First fix wiring — ground floor", "in_progress", "high", -15, +8,
+             "Cabling before plasterboard; smoke alarms looped.", None),
+            (project6, "Electrician", "Switchboard install and CoC", "pending", "critical", +14, +16,
+             "Energisation before walls close.", None),
+            (project6, "Gib Stopper", "Install plasterboard — ground floor", "pending", "medium", +20, +27,
+             "After inspections; 13mm ceilings throughout.", None),
+            (project6, "Roofer", "Long-run roof install", "pending", "high", +7, +18,
+             "Colour match to architect's spec, flashings first.", None),
+            (project6, "Scaffolder", "Scaffold raise — gable end", "blocked", "medium", +2, +5,
+             "Waiting on engineered tie detail for the gable.",
+             "Engineer revising tie calculations."),
+            (project6, "Site Carpenter", "Deck framing — rear elevation", "pending", "low", +30, +40,
+             "Ground screws set out; hardwood deck to follow.", None),
+            (project6, "Plumber", "Fit-off — bathrooms and kitchen", "pending", "medium", +34, +45,
+             "After tiling; fixtures held in store.", None),
+            (project6, "Electrician", "Fit-off — lighting and power", "pending", "medium", +36, +46,
+             "Finals test and CoC sign-off at completion.", None),
+
+            # ---------------- project7: Rata Street fit-out (completed)
+            (project7, "Site Carpenter", "Bulkhead and stud partitions — ground floor", "completed", "high", -290, -260,
+             "Tenancy layout per architect's plans.", None),
+            (project7, "Electrician", "Power and data rough-in — all levels", "completed", "high", -230, -190,
+             "Data cabling tested and labelled.", None),
+            (project7, "Site Carpenter", "Reception joinery install", "completed", "medium", -160, -140,
+             "Custom oak front delivered and fitted.", None),
+            (project7, "Tiler", "Floor tiling — lobby and wet areas", "completed", "medium", -170, -145,
+             "Large format tiles, lippage checked.", None),
+            (project7, "Painter", "Full interior paint — all levels", "completed", "medium", -150, -120,
+             "Low-VOC system, two coats.", None),
+            (project7, "Cabinetmaker", "Kitchen and kitchenette fit-out", "completed", "high", -125, -95,
+             "Stone tops templated post-install.", None),
+            (project7, "Electrician", "Emergency and exit lighting test", "completed", "medium", -80, -74,
+             "Commissioning test done at handover.", None),
+            (project7, "Plumber", "Fixtures and fit-off — all levels", "completed", "medium", -110, -88,
+             "Taps, WC and basins commissioned.", None),
+            (project7, "Painter", "Touch-ups after joinery", "completed", "low", -75, -70,
+             "Snag list closed pre-handover.", None),
+            (project7, "Site Carpenter", "Defect rectification walk — punch list", "completed", "medium", -70, -62,
+             "All items signed off by facilities manager.", None),
+
+            # ---------------- project8: Wharf Road (active, early stage)
+            (project8, "Concrete Crew", "Slab pour — both units", "completed", "critical", -14, -12,
+             "Pumped pour, cured before frame delivery.", None),
+            (project8, "Scaffolder", "Perimeter scaffold and edge protection", "completed", "medium", -5, -3,
+             "Tagged, inspection register current.", None),
+            (project8, "Site Carpenter", "Frame — Unit 1 ground floor", "in_progress", "critical", -8, +3,
+             "Walls standing; bracing inspection booked.", None),
+            (project8, "Site Carpenter", "Frame — Unit 2 ground floor", "in_progress", "high", -4, +8,
+             "Set out behind Unit 1 crew.", None),
+            (project8, "Site Carpenter", "First floor joists — Unit 1", "pending", "high", +4, +10,
+             "After ground-floor frame sign-off.", None),
+            (project8, "Plumber", "Under-slab drainage pressure test", "pending", "high", +3, +5,
+             "Council witness required before backfill.", None),
+            (project8, "Plumber", "First fix plumbing — Unit 1", "pending", "medium", +9, +20,
+             "Rough-in behind frame as walls close.", None),
+            (project8, "Electrician", "Site power upgrade — permanent feed", "pending", "medium", +6, +12,
+             "Meter install coordinated with provider.", None),
+            (project8, "Electrician", "First fix wiring — Unit 1", "pending", "high", +12, +25,
+             "Cable through frame; coordinate with plumber.", None),
+            (project8, "Concrete Crew", "Driveway and path pour", "pending", "low", +45, +55,
+             "At end of programme after trades demob.", None),
         ]
         tasks: dict[str, Task] = {}
         for project, trade_name, title, status, priority, sched, due, desc, blocked in task_rows:
@@ -403,6 +607,104 @@ def seed(drop: bool = False, db: Session | None = None) -> None:
                    title="Deck joist rot — 6 joists",
                    description="Joists 3-8 show advanced rot at wall junction; engineer's repair detail awaited.",
                    severity=DefectSeverity.HIGH, status=DefectStatus.OPEN, reported_by_id=lena_s.id, created_at=dt(28, 8, 40)),
+
+            # project1 — extra *closed* history (the 6 active flagship defects stay as-is)
+            Defect(task_id=tasks["Stormwater connections"].id,
+                   title="Gully trap grate proud of finish level",
+                   description="Grate sat 8mm high after paving; reset on mortar bed and re-tested.",
+                   severity=DefectSeverity.LOW, status=DefectStatus.CLOSED, reported_by_id=dave.id,
+                   created_at=dt(7, 9, 40), resolved_at=dt(5, 14, 15)),
+            Defect(task_id=tasks["Scaffold inspect and handover — roof zone"].id,
+                   title="Scaffold tag expired on east ladder bay",
+                   description="Weekly inspection lapsed over the long weekend; inspected and tag replaced.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.RESOLVED, reported_by_id=dave.id,
+                   created_at=dt(6, 7, 25), resolved_at=dt(6, 11, 5)),
+
+            # project2 — more of the live defect mix
+            Defect(task_id=tasks["Frame and truss — Unit A"].id,
+                   title="Brace spacing short at stair opening",
+                   description="Two bays at the stair void braced at 3.5m instead of 3.0m; extra strap to be fixed.",
+                   severity=DefectSeverity.HIGH, status=DefectStatus.OPEN, reported_by_id=aroha.id, created_at=dt(4, 8, 10)),
+            Defect(task_id=tasks["First fix plumbing — Unit A"].id,
+                   title="Hot water loop crosses joist without grommet",
+                   description="Pipe passes through a joist web with no sleeve; core drill and grommet required.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.OPEN, reported_by_id=aroha.id, created_at=dt(5, 10, 35)),
+            Defect(task_id=tasks["First fix wiring — Unit A"].id,
+                   title="Switch drops out of position at kitchen bench",
+                   description="Three drops 40mm low against the cabinetry set-out; re-pull before gib closes.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.IN_PROGRESS, reported_by_id=priya_s.id, created_at=dt(6, 13, 15)),
+            Defect(task_id=tasks["Slab pour — Unit A"].id,
+                   title="Sawn joint at garage threshold sealed",
+                   description="Joint re-cut and sealed to spec; photos filed for the job pack.",
+                   severity=DefectSeverity.LOW, status=DefectStatus.CLOSED, reported_by_id=aroha.id,
+                   created_at=dt(26, 9, 20), resolved_at=dt(24, 15, 30)),
+
+            # project3 — completed build: more closed trail
+            Defect(task_id=tasks["Full reroof — Units 1-4"].id,
+                   title="Spouting bracket spacing flagged at inspection",
+                   description="Three brackets at 1.1m instead of 900mm; reset and signed off by the inspector.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.CLOSED, reported_by_id=steve.id,
+                   created_at=dt(45, 8, 5), resolved_at=dt(40, 16, 20)),
+            Defect(task_id=tasks["Kitchen and kitchenette fit-out"].id,
+                   title="Door reveal proud on pantry unit",
+                   description="Reveals packed and re-hung to align with the benchtop shadow line.",
+                   severity=DefectSeverity.LOW, status=DefectStatus.CLOSED, reported_by_id=steve.id,
+                   created_at=dt(120, 11, 30), resolved_at=dt(115, 14, 10)),
+
+            # project5 — paused build: the claim keeps growing
+            Defect(task_id=tasks["Reinstate parapet capping"].id,
+                   title="Parapet flashing corroded at valley",
+                   description="Capping and step flashing surface-corroded; replace with like-for-like on remediation.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.OPEN, reported_by_id=lena_s.id, created_at=dt(9, 7, 50)),
+            Defect(task_id=tasks["Half-scaffold maintain and inspect"].id,
+                   title="Scaffold fuse board missing at west bay",
+                   description="Board and toe board stripped during partial strike; refit before site reopens.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.IN_PROGRESS, reported_by_id=lena_s.id, created_at=dt(12, 8, 25)),
+
+            # project6 — Kauri Lane: live defect mix on the active build
+            Defect(task_id=tasks["Frame and truss — first floor"].id,
+                   title="Truss nail plate lift on bottom chord",
+                   description="Two plates not fully seated on truss T-7; hydraulic press tool requested by supplier.",
+                   severity=DefectSeverity.CRITICAL, status=DefectStatus.OPEN, reported_by_id=tui.id, created_at=dt(4, 7, 40)),
+            Defect(task_id=tasks["Frame and truss — first floor"].id,
+                   title="Wall frame out of plumb at stair void",
+                   description="12mm over 3m at the stair void; re-plumb and re-brace before joists land.",
+                   severity=DefectSeverity.HIGH, status=DefectStatus.IN_PROGRESS, reported_by_id=tui.id, created_at=dt(5, 9, 55)),
+            Defect(task_id=tasks["First fix plumbing — ground floor"].id,
+                   title="Pipe penetrating fire wall without sleeve",
+                   description="Kitchen cold line through the party wall needs a fire-rated sleeve and intumescent seal.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.OPEN, reported_by_id=tui.id, created_at=dt(7, 11, 15)),
+            Defect(task_id=tasks["Foundations and pile caps"].id,
+                   title="Pile cap datum 10mm low — packed to spec",
+                   description="Cap at grid C4 poured low; engineer accepted shimming detail, poured and re-tested.",
+                   severity=DefectSeverity.LOW, status=DefectStatus.RESOLVED, reported_by_id=tui.id,
+                   created_at=dt(15, 10, 45), resolved_at=dt(12, 13, 0)),
+
+            # project7 — completed fit-out: closed snag history
+            Defect(task_id=tasks["Floor tiling — lobby and wet areas"].id,
+                   title="Grout colour variation in lobby",
+                   description="Two batches mixed in the same bay; regrouted the affected area, matched on cure.",
+                   severity=DefectSeverity.LOW, status=DefectStatus.CLOSED, reported_by_id=james.id,
+                   created_at=dt(95, 9, 25), resolved_at=dt(88, 15, 45)),
+            Defect(task_id=tasks["Emergency and exit lighting test"].id,
+                   title="Two exit signs failed lux test",
+                   description="Drivers replaced with matching units; full re-test passed at 0.5 lux at floor level.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.CLOSED, reported_by_id=james.id,
+                   created_at=dt(70, 14, 5), resolved_at=dt(65, 10, 40)),
+
+            # project8 — Wharf Road: fresh defects on the new active build
+            Defect(task_id=tasks["Frame — Unit 1 ground floor"].id,
+                   title="Bottom plate anchor spacing off at wet wall",
+                   description="Anchors at 1.6m instead of 1.2m along the wet wall; added fixings today.",
+                   severity=DefectSeverity.CRITICAL, status=DefectStatus.OPEN, reported_by_id=hana.id, created_at=dt(3, 8, 30)),
+            Defect(task_id=tasks["Slab pour — both units"].id,
+                   title="Surface laitance at garage bay",
+                   description="Weak surface over ~2m² at the garage bay; bush-hammer and cure before covering.",
+                   severity=DefectSeverity.MEDIUM, status=DefectStatus.OPEN, reported_by_id=hana.id, created_at=dt(6, 9, 10)),
+            Defect(task_id=tasks["Perimeter scaffold and edge protection"].id,
+                   title="Missing toe board on north run",
+                   description="Toe board lifted for the material hoist and not replaced; refit before tomorrow's briefing.",
+                   severity=DefectSeverity.LOW, status=DefectStatus.IN_PROGRESS, reported_by_id=hana.id, created_at=dt(5, 7, 55)),
         ]
         db.add_all(defects)
         db.commit()

@@ -46,7 +46,7 @@ services:
         condition: service_healthy
     environment:
       # rendered into nginx.conf.template at container start
-      BACKEND_HOST: backend
+      BACKEND_URL: http://backend:8000
     ports:
       - "3000:80"
 

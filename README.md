@@ -102,9 +102,11 @@ supervisors 1──* projects 1──* tasks *──1 trades
 | `defects` | issue raised against a task, with severity and status |
 
 Seed data (dates generated **relative to today**, so the demo always looks live):
-1 project, 1 supervisor, 5 trades (each with a crew on site), 16 tasks spanning
-overdue / today / tomorrow / this week / next week / completed, and 5 defects
-(1 critical open, 1 medium open, 1 in progress, 1 resolved, 1 closed).
+8 supervisors, 8 projects across all four statuses (4 active, 2 completed, 1 planning,
+1 paused), 13 trades, 47 crew allocations, 114 tasks spanning overdue / today /
+tomorrow / this week / next week / completed / blocked, and 38 defects covering
+every severity and status. The flagship demo build ("14 Kowhai Crescent") keeps an
+exact 21-task programme with 6 active defects — the test suite pins those numbers.
 
 ## API surface
 
@@ -139,6 +141,36 @@ python -m pytest -q          # no DB or API key needed — runs on in-memory SQL
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the backend tests and the frontend production build on every push/PR.
+
+## Deploying to Render
+
+The repo ships a [Render Blueprint](https://render.com/docs/blueprint-spec) (`render.yaml` at
+the repo root) that defines the whole stack — push the repo to GitHub, then:
+
+**Render Dashboard → New → Blueprint → select the repo**
+
+It provisions three resources (region `singapore`, free tier):
+
+| resource | what it is |
+|---|---|
+| `precode-api` | FastAPI backend (Docker, `backend/`), health check `/api/health` |
+| `precode-web` | React UI + nginx `/api` proxy (Docker, `frontend/`) |
+| `precode-db` | Render Postgres, injected into the API as `DATABASE_URL` |
+
+Notes:
+
+- The Blueprint wires `BACKEND_URL` (the API's public URL) into the frontend
+  automatically, so the deployed app is same-origin — no CORS, SSE streaming works
+  as-is. Both containers bind `$PORT`, which Render sets to `10000`.
+- The API creates its schema and seeds demo data on first start, same as local.
+- `OPENAI_API_KEY` is left unset on purpose (`sync: false`). Without it the agent
+  uses the deterministic fallback and the demo still works; set it (plus the
+  `LLM_*` / `STT_*` / `TTS_*` values from `.env.example`) in the dashboard for
+  LLM-powered answers and server-side voice.
+- Free-tier services spin down after ~15 min idle: the first request after that
+  takes ~30 s to wake up. Bump `plan` in `render.yaml` to keep them always-on.
+
+App: `https://precode-web.onrender.com` · API docs: `https://precode-api.onrender.com/docs`
 
 ## Running without Docker (dev)
 

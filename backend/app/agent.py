@@ -24,6 +24,7 @@ from .config import settings
 logger = logging.getLogger("precode.agent")
 
 MAX_HISTORY_MESSAGES = 12  # keep memory bounded; recent turns matter most
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 def _trim_history(history: list[dict]) -> list[dict]:
@@ -368,8 +369,15 @@ def run_fallback(db: Session, question: str, today: date, history: list[dict] | 
         tools_used.append("get_defects")
         active = [d for d in defects if d["status"] in ("open", "in_progress")]
         if active:
-            bits = [f"{d['severity']} severity {d['title']} on {d['task_title']} ({d['trade']})" for d in active]
-            parts.append(f"You have {len(active)} active defects: " + "; ".join(bits) + ".")
+            # Biggest and newest first, capped so the spoken answer stays
+            # usable now the dataset carries dozens of defects (the full list
+            # is always one question away).
+            active.sort(key=lambda d: d["created_at"] or "", reverse=True)
+            active.sort(key=lambda d: _SEVERITY_RANK.get(d["severity"], 9))
+            shown = active[:8]
+            bits = [f"{d['severity']} severity {d['title']} on {d['task_title']} ({d['trade']})" for d in shown]
+            more = f" — {len(active) - len(shown)} more, ask for the full list" if len(active) > len(shown) else ""
+            parts.append(f"You have {len(active)} active defects: " + "; ".join(bits) + more + ".")
         else:
             parts.append("You have no active defects right now.")
 
